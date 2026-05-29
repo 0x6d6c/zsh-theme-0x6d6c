@@ -90,7 +90,7 @@ _0x6d6c_set_prompt() {
 
   # Right side of the first line. Non-zero exit codes show on a red background.
   local exit_code="$exit_status"
-  (( exit_status != 0 )) && exit_code="%{$bg_bold[red]%}${exit_status}%{$reset_color%}"
+  (( exit_status != 0 )) && exit_code="%{$bg[red]%}%{$fg_bold[white]%} ${exit_status} %{$reset_color%}"
   # Pre-expand the clock to a literal "HH:MM:SS" string. %D{%H:%M:%S} keeps the
   # hour zero-padded (01..23) for constant width, but it must NOT survive into
   # the width measurement below: the strftime "%S" (seconds) collides with the
