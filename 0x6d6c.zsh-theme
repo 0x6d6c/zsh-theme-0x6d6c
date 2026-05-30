@@ -13,18 +13,20 @@ host_full='$(hostname --long)'
 # correctly *and* count as one column when the visible prompt width is measured
 # for right-alignment below — the (%%) width flag used there does not interpret
 # \u escapes. (echo is kept for parity with the original radius definitions.)
-S_ADDED=$(echo "●")
+# The git status glyphs are deliberately plain single-column characters (see
+# issue #7): the previous emoji were double-width and complicated the
+# right-alignment width calculation (issue #1).
+S_ADDED=$(echo "A")
 S_BRANCH=$(echo "")
-S_CLEAN=$(echo "✓")
-S_DELETED=$(echo "➖")
-S_DIRTY=$(echo "✘")
-S_MODIFIED=$(echo "➕")
-S_PULL=$(echo "⮟")
-S_PUSH=$(echo "⮝")
+S_DELETED=$(echo "D")
+S_DIRTY=$(echo "*")
+S_MODIFIED=$(echo "M")
+S_PULL=$(echo "↓")
+S_PUSH=$(echo "↑")
 S_RADIUS_B=$(echo "└")
 S_RADIUS_T=$(echo "┌")
-S_TAG=$(echo "↹")
-S_UNTRACKED=$(echo "❓")
+S_TAG=$(echo ":")
+S_UNTRACKED=$(echo "U")
 
 # Colors and command prompts for root and regular user
 if [[ $UID = 0 ]]; then
@@ -39,8 +41,9 @@ fi
 PROMPT_PREFIX1="${S_BRANCH} "
 PROMPT_PREFIX2="%{$fg_bold[yellow]%}"
 PROMPT_SUFFIX="%{$reset_color%}"
-PROMPT_CLEAN=" %{$fg[green]%}${S_CLEAN}"
-PROMPT_DIRTY=" %{$fg[red]%}${S_DIRTY}"
+# A clean repo shows no marker; the dirty marker "*" prepends the branch name
+# ("*master", issue #7), so it carries no leading space.
+PROMPT_DIRTY="%{$fg[red]%}${S_DIRTY}%{$reset_color%}"
 
 
 # Git info
@@ -49,16 +52,15 @@ git_status='$(git_prompt_status)'
 git_behind='$(git_commits_behind)'
 git_ahead='$(git_commits_ahead)'
 ZSH_THEME_GIT_PROMPT_AHEAD="%{$fg[magenta]%}${S_PUSH}%{$reset_color%}"
-ZSH_THEME_GIT_PROMPT_ADDED="%{$fg[green]%}${S_ADDED}%{$reset_color%}"
+ZSH_THEME_GIT_PROMPT_ADDED="%{$fg_bold[green]%}${S_ADDED}%{$reset_color%}"
 ZSH_THEME_GIT_PROMPT_BEHIND="%{$fg[magenta]%}${S_PULL}%{$reset_color%}"
-ZSH_THEME_GIT_PROMPT_CLEAN="${PROMPT_CLEAN}"
 ZSH_THEME_GIT_PROMPT_DIRTY="${PROMPT_DIRTY}"
-ZSH_THEME_GIT_PROMPT_DELETED="${S_DELETED}"
-ZSH_THEME_GIT_PROMPT_MODIFIED="%{$fg[blue]%}${S_MODIFIED}%{$reset_color%}"
-ZSH_THEME_GIT_PROMPT_PREFIX=" ${PROMPT_PREFIX1}${PROMPT_PREFIX2}"
+ZSH_THEME_GIT_PROMPT_DELETED="%{$fg_bold[grey]%}${S_DELETED}%{$reset_color%}"
+ZSH_THEME_GIT_PROMPT_MODIFIED="%{$fg_bold[yellow]%}${S_MODIFIED}%{$reset_color%}"
+ZSH_THEME_GIT_PROMPT_PREFIX=" ${PROMPT_PREFIX1}"
 ZSH_THEME_GIT_PROMPT_SUFFIX="${PROMPT_SUFFIX}"
-ZSH_THEME_GIT_PROMPT_TAG_PREFIX=" %{$fg[cyan]%}${S_TAG} "
-ZSH_THEME_GIT_PROMPT_TAG_SUFFIX="%{$reset_color%}"
+ZSH_THEME_GIT_PROMPT_TAG_PREFIX="${S_TAG}"
+ZSH_THEME_GIT_PROMPT_TAG_SUFFIX=""
 ZSH_THEME_GIT_PROMPT_UNTRACKED="%{$fg[red]%}${S_UNTRACKED}%{$reset_color%}"
 
 # Nearest tag reachable from HEAD, shown alongside the branch. A tag belongs to
@@ -66,10 +68,10 @@ ZSH_THEME_GIT_PROMPT_UNTRACKED="%{$fg[red]%}${S_UNTRACKED}%{$reset_color%}"
 # release tag on main, even when HEAD sits a few commits past it) and the rare
 # case (a tag on a feature branch's history). We use `git describe --tags
 # --abbrev=0`, i.e. the most recent tag that is an ancestor of HEAD, name only —
-# no commit-distance suffix. omz's git_prompt_info only renders a tag when HEAD
-# is *detached and sitting exactly on a tag* (as the ref); we skip that one case
-# to avoid printing it twice. On a normal branch checkout omz shows the branch
-# and never the tag, which is what this surfaces.
+# no commit-distance suffix. When HEAD is *detached and sitting exactly on a
+# tag*, _0x6d6c_git_info already uses that tag as the ref, so we skip that one
+# case to avoid printing it twice. On a normal branch checkout the ref is the
+# branch name and the tag is appended as ":<tag>".
 _0x6d6c_git_tag() {
   local g
   if (( $+functions[__git_prompt_git] )); then
@@ -78,7 +80,7 @@ _0x6d6c_git_tag() {
     g="command git"
   fi
   $g rev-parse --git-dir &> /dev/null || return 0
-  # Detached HEAD exactly on a tag → git_prompt_info already shows it. Skip.
+  # Detached HEAD exactly on a tag → it is already the ref. Skip.
   if ! $g symbolic-ref --quiet HEAD &> /dev/null \
      && $g describe --tags --exact-match HEAD &> /dev/null; then
     return 0
@@ -86,6 +88,39 @@ _0x6d6c_git_tag() {
   local tag
   tag=$($g describe --tags --abbrev=0 2> /dev/null) || return 0
   [[ -n $tag ]] && echo "${ZSH_THEME_GIT_PROMPT_TAG_PREFIX}${tag//\%/%%}${ZSH_THEME_GIT_PROMPT_TAG_SUFFIX}"
+}
+
+# Full branch segment: " <icon> [*]<ref>[:<tag>]". The dirty marker "*" PREPENDS
+# the ref (issue #7); a clean repo shows no marker at all. omz's git_prompt_info
+# can only append the dirty marker, so the segment is assembled here instead.
+# Rendered synchronously via __git_prompt_git, sidestepping omz's async git
+# cache exactly like _0x6d6c_git_tag (see _0x6d6c_set_prompt for why).
+_0x6d6c_git_info() {
+  local g
+  if (( $+functions[__git_prompt_git] )); then
+    g=__git_prompt_git
+  else
+    g="command git"
+  fi
+  $g rev-parse --git-dir &> /dev/null || return 0
+  [[ "$($g config --get oh-my-zsh.hide-info 2> /dev/null)" == 1 ]] && return 0
+
+  # ref: branch name, else the tag we sit exactly on, else short SHA (mirrors omz).
+  local ref
+  ref=$($g symbolic-ref --short HEAD 2> /dev/null) \
+    || ref=$($g describe --tags --exact-match HEAD 2> /dev/null) \
+    || ref=$($g rev-parse --short HEAD 2> /dev/null) \
+    || return 0
+
+  # Dirty state via omz's parse_git_dirty (honours its config/flags). A clean
+  # repo shows nothing; a dirty one prepends "*" to the ref.
+  local pre=""
+  if (( $+functions[parse_git_dirty] )) \
+     && [[ "$(parse_git_dirty)" == "$ZSH_THEME_GIT_PROMPT_DIRTY" ]]; then
+    pre="$ZSH_THEME_GIT_PROMPT_DIRTY"
+  fi
+
+  echo "${ZSH_THEME_GIT_PROMPT_PREFIX}${pre}${PROMPT_PREFIX2}${ref//\%/%%}%{$reset_color%}$(_0x6d6c_git_tag)${ZSH_THEME_GIT_PROMPT_SUFFIX}"
 }
 
 # Zero-width prompt escapes, stripped when measuring the visible prompt width.
@@ -100,23 +135,23 @@ _0x6d6c_set_prompt() {
   local exit_status=$?
 
   # Render git info synchronously. Oh My Zsh's async git prompt (default on zsh
-  # >= 5.0.6) makes git_prompt_info merely echo a cache that is only filled when
-  # the literal string "$(git_prompt_info)" is found in $PS1. We build $PS1 here
-  # with the value already expanded, so that detection never fires and the cache
-  # stays empty. Call the synchronous worker functions directly instead; fall
-  # back to the public functions on setups that predate the async refactor.
+  # >= 5.0.6) makes git_prompt_status merely echo a cache that is only filled
+  # when the literal string "$(git_prompt_status)" is found in $PS1. We build
+  # $PS1 here with the value already expanded, so that detection never fires and
+  # the cache stays empty. Call the synchronous worker directly instead; fall
+  # back to the public function on setups that predate the async refactor. The
+  # branch/tag/dirty segment is built by _0x6d6c_git_info (also synchronous, via
+  # __git_prompt_git) so it can prepend the dirty marker and join the tag.
   local gitinfo gitstatus
-  if (( $+functions[_omz_git_prompt_info] )); then
-    gitinfo="$(_omz_git_prompt_info)"
+  gitinfo="$(_0x6d6c_git_info)"
+  if (( $+functions[_omz_git_prompt_status] )); then
     gitstatus="$(_omz_git_prompt_status)"
   else
-    gitinfo="$(git_prompt_info)"
     gitstatus="$(git_prompt_status)"
   fi
-  local gittag="$(_0x6d6c_git_tag)"
 
-  # Left side of the first line: ┌user@host: cwd <git_info> <git_tag> <git_status>
-  local left="${S_RADIUS_T}${_USER}@${(e)host_full}: %B${(e)cwd}%b${gitinfo}${gittag} ${gitstatus}"
+  # Left side of the first line: ┌user@host: cwd <git_info> <git_status>
+  local left="${S_RADIUS_T}${_USER}@${(e)host_full}: %B${(e)cwd}%b${gitinfo} ${gitstatus}"
 
   # Right side of the first line. Non-zero exit codes show on a red background.
   local exit_code="$exit_status"
@@ -133,8 +168,10 @@ _0x6d6c_set_prompt() {
 
   # Pad between the two sides so `right` hugs the terminal's right edge. Widths
   # are measured with zero-width escapes stripped (see $_ZERO) and the (m) flag,
-  # which counts display columns via wcwidth() — required because several status
-  # glyphs (➕ ➖ ❓) are emoji-width and occupy two columns each.
+  # which counts display columns via wcwidth(). The status glyphs are now plain
+  # single-column characters (issue #7), so (m) currently matches a plain count;
+  # it is kept as a safeguard because the earlier emoji glyphs were double-width
+  # and a plain ${#…} undercounted them, overflowing the right edge.
   local lwidth=${(m)#${(S%%)left//$~_ZERO/}}
   local rwidth=${(m)#${(S%%)right//$~_ZERO/}}
   local pad=$(( COLUMNS - lwidth - rwidth ))
