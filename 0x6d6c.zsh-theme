@@ -57,7 +57,36 @@ ZSH_THEME_GIT_PROMPT_DELETED="${S_DELETED}"
 ZSH_THEME_GIT_PROMPT_MODIFIED="%{$fg[blue]%}${S_MODIFIED}%{$reset_color%}"
 ZSH_THEME_GIT_PROMPT_PREFIX=" ${PROMPT_PREFIX1}${PROMPT_PREFIX2}"
 ZSH_THEME_GIT_PROMPT_SUFFIX="${PROMPT_SUFFIX}"
+ZSH_THEME_GIT_PROMPT_TAG_PREFIX=" %{$fg[cyan]%}${S_TAG} "
+ZSH_THEME_GIT_PROMPT_TAG_SUFFIX="%{$reset_color%}"
 ZSH_THEME_GIT_PROMPT_UNTRACKED="%{$fg[red]%}${S_UNTRACKED}%{$reset_color%}"
+
+# Nearest tag reachable from HEAD, shown alongside the branch. A tag belongs to
+# a commit, not a branch, so this single rule covers both the common case (a
+# release tag on main, even when HEAD sits a few commits past it) and the rare
+# case (a tag on a feature branch's history). We use `git describe --tags
+# --abbrev=0`, i.e. the most recent tag that is an ancestor of HEAD, name only —
+# no commit-distance suffix. omz's git_prompt_info only renders a tag when HEAD
+# is *detached and sitting exactly on a tag* (as the ref); we skip that one case
+# to avoid printing it twice. On a normal branch checkout omz shows the branch
+# and never the tag, which is what this surfaces.
+_0x6d6c_git_tag() {
+  local g
+  if (( $+functions[__git_prompt_git] )); then
+    g=__git_prompt_git
+  else
+    g="command git"
+  fi
+  $g rev-parse --git-dir &> /dev/null || return 0
+  # Detached HEAD exactly on a tag → git_prompt_info already shows it. Skip.
+  if ! $g symbolic-ref --quiet HEAD &> /dev/null \
+     && $g describe --tags --exact-match HEAD &> /dev/null; then
+    return 0
+  fi
+  local tag
+  tag=$($g describe --tags --abbrev=0 2> /dev/null) || return 0
+  [[ -n $tag ]] && echo "${ZSH_THEME_GIT_PROMPT_TAG_PREFIX}${tag//\%/%%}${ZSH_THEME_GIT_PROMPT_TAG_SUFFIX}"
+}
 
 # Zero-width prompt escapes, stripped when measuring the visible prompt width.
 _ZERO='%([BSUbfksu]|([FK]|){*})'
@@ -84,9 +113,10 @@ _0x6d6c_set_prompt() {
     gitinfo="$(git_prompt_info)"
     gitstatus="$(git_prompt_status)"
   fi
+  local gittag="$(_0x6d6c_git_tag)"
 
-  # Left side of the first line: ┌user@host: cwd <git_info> <git_status>
-  local left="${S_RADIUS_T}${_USER}@${(e)host_full}: %B${(e)cwd}%b${gitinfo} ${gitstatus}"
+  # Left side of the first line: ┌user@host: cwd <git_info> <git_tag> <git_status>
+  local left="${S_RADIUS_T}${_USER}@${(e)host_full}: %B${(e)cwd}%b${gitinfo}${gittag} ${gitstatus}"
 
   # Right side of the first line. Non-zero exit codes show on a red background.
   local exit_code="$exit_status"
